@@ -23,12 +23,6 @@ for (let i = 0; i < 4; i++) {
     userWallets.push(accounts.privateKeyToAccount(userWalletsPriv[i]))
 }
 
-// const generateTx = async (receiverAddr) => {
-//   const tx = {
-
-//   }
-// }
-
 export {
     exchangeAddr,
     userWallets

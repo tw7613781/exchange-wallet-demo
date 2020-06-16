@@ -5,19 +5,20 @@ const ropsten = 'https://ropsten.infura.io/v3/ab7a19d6d1de466d93a9b6893deff631'
 const web3 = new Web3(new Web3.providers.HttpProvider(ropsten))
 
 const network = new Map()
-network.set(1, 'MainNet')
-network.set(3, 'Ropsten')
+network.set(1, 'mainnet')
+network.set(3, 'ropsten')
+let networkId
 let blockNumber
 const confirm = 4
 async function main () {
     try {
-        const networkId = await web3.eth.net.getId()
+        networkId = await web3.eth.net.getId()
         console.log('Connected successfully to Ethereum', network.get(networkId))
     } catch (e) {
         console.log(`Fail to connect to Ethereum network due to ${e}`)
     }
-    await getAllBalance()
-    setInterval(async () => await monitorBlocks(), 2000)
+    getAllBalance()
+    setInterval(monitorBlocks, 2000)
 }
 
 async function getAllBalance () {
@@ -25,7 +26,7 @@ async function getAllBalance () {
     console.log(`Exchange address ${exchangeAddr} balance ${web3.utils.fromWei(exchangeAddrBalance)}`)
     for (let i = 0; i < userWallets.length; i++) {
         const balance = await web3.eth.getBalance(userWallets[i].address)
-        console.log(`user address ${userWallets[i].address} balance ${web3.utils.fromWei(balance)}`)
+        console.log(`User address ${userWallets[i].address} balance ${web3.utils.fromWei(balance)}`)
     }
 }
 
@@ -36,9 +37,7 @@ async function monitorBlocks () {
     }
     if (blockNumber + confirm < currentBlockNumber) {
         blockNumber++
-        setImmediate(async () => {
-            await getBlock(blockNumber)
-        })
+        setImmediate(getBlock, blockNumber)
     }
 }
 
@@ -49,18 +48,46 @@ async function getBlock (blockNumber) {
         userWallets.forEach((wallet) => {
             if (wallet.address === tx.to) {
                 const receivedEth = web3.utils.fromWei(tx.value)
-                console.log(`user address ${wallet.address} received ${receivedEth} ETH in TX hash ${tx.hash}`)
-                setImmediate(async () => {
-                    await getAllBalance()
-                })
+                console.log(`User address ${wallet.address} received ${receivedEth} ETH in TX hash ${tx.hash}`)
+                setImmediate(sendAll, wallet, exchangeAddr)
             }
         })
         if (exchangeAddr === tx.to) {
-            setImmediate(async () => {
-                await getAllBalance()
-            })
+            setImmediate(getAllBalance)
         }
     }
+}
+
+async function sendAll (senderWallet, receivedAddr) {
+    console.log(`User address ${senderWallet.address} start sendting to exchange address`)
+    const balance = await web3.eth.getBalance(senderWallet.address)
+    const gasPrice = await web3.eth.getGasPrice()
+    const nonce = await web3.eth.getTransactionCount(senderWallet.address)
+
+    const rawTx = {
+        nonce,
+        to: receivedAddr,
+        gasPrice: gasPrice,
+        chainId: networkId
+    }
+
+    const gasLimit = await web3.eth.estimateGas(rawTx)
+    const transactionFee = gasPrice * gasLimit
+    if (transactionFee > balance) {
+        return console.log(`User address ${senderWallet.address} balance ${balance} is insufficient to pay for the estimate transaction fee ${transactionFee}`)
+    }
+    rawTx.value = balance - transactionFee
+    rawTx.gas = gasLimit
+
+    const signedTx = await web3.eth.accounts.signTransaction(rawTx, senderWallet.privateKey)
+    web3.eth.sendSignedTransaction(signedTx.rawTransaction)
+        .on('receipt', (recipt) => {
+            if (recipt.status) {
+                console.log(`User address ${senderWallet.address} sent all to exchange address in tx ${recipt.transactionHash}`)
+            } else {
+                console.log(`User address ${senderWallet.address} sent failed`)
+            }
+        })
 }
 
 main().catch((e) => {
