@@ -23,10 +23,10 @@ async function main () {
 
 async function getAllBalance () {
     const exchangeAddrBalance = await web3.eth.getBalance(exchangeAddr)
-    console.log(`Exchange address ${exchangeAddr} balance ${web3.utils.fromWei(exchangeAddrBalance)}`)
+    console.log(`Exchange address ${exchangeAddr} balance ${web3.utils.fromWei(exchangeAddrBalance)} Eth`)
     for (let i = 0; i < userWallets.length; i++) {
         const balance = await web3.eth.getBalance(userWallets[i].address)
-        console.log(`User address ${userWallets[i].address} balance ${web3.utils.fromWei(balance)}`)
+        console.log(`User address ${userWallets[i].address} balance ${web3.utils.fromWei(balance)} Eth`)
     }
 }
 
@@ -45,21 +45,26 @@ async function getBlock (blockNumber) {
     const block = await web3.eth.getBlock(blockNumber, true)
     console.log(`Block #${block.number}: ${block.hash} ${block.transactions.length}`)
     for (const tx of block.transactions) {
-        userWallets.forEach((wallet) => {
+        userWallets.forEach(async (wallet) => {
             if (wallet.address === tx.to) {
                 const receivedEth = web3.utils.fromWei(tx.value)
-                console.log(`User address ${wallet.address} received ${receivedEth} ETH in TX hash ${tx.hash}`)
+                console.log(`User address ${wallet.address} received ${receivedEth} Eth in TX hash ${tx.hash}`)
+                const balance = await web3.eth.getBalance(wallet.address)
+                console.log(`User address ${wallet.address} balance: ${web3.utils.fromWei(balance)} Eth`)
                 setImmediate(sendAll, wallet, exchangeAddr)
             }
         })
         if (exchangeAddr === tx.to) {
-            setImmediate(getAllBalance)
+            const receivedEth = web3.utils.fromWei(tx.value)
+            console.log(`Exchange address ${exchangeAddr} received ${receivedEth} ETH in TX hash ${tx.hash}`)
+            const balance = await web3.eth.getBalance(exchangeAddr)
+            console.log(`Balance is : ${web3.utils.fromWei(balance)} Eth`)
         }
     }
 }
 
 async function sendAll (senderWallet, receivedAddr) {
-    console.log(`User address ${senderWallet.address} start sendting to exchange address`)
+    console.log(`User address ${senderWallet.address} start sending all balance to exchange address ${exchangeAddr}`)
     const balance = await web3.eth.getBalance(senderWallet.address)
     const gasPrice = await web3.eth.getGasPrice()
     const nonce = await web3.eth.getTransactionCount(senderWallet.address)
@@ -74,7 +79,8 @@ async function sendAll (senderWallet, receivedAddr) {
     const gasLimit = await web3.eth.estimateGas(rawTx)
     const transactionFee = gasPrice * gasLimit
     if (transactionFee > balance) {
-        return console.log(`User address ${senderWallet.address} balance ${balance} is insufficient to pay for the estimate transaction fee ${transactionFee}`)
+        const txFeeEth = web3.utils.fromWei(transactionFee.toString())
+        return console.log(`User address ${senderWallet.address} balance ${web3.utils.fromWei(balance)} Eth is insufficient to pay for the estimate transaction fee ${txFeeEth} Eth`)
     }
     rawTx.value = balance - transactionFee
     rawTx.gas = gasLimit
@@ -83,10 +89,13 @@ async function sendAll (senderWallet, receivedAddr) {
     web3.eth.sendSignedTransaction(signedTx.rawTransaction)
         .on('receipt', (recipt) => {
             if (recipt.status) {
-                console.log(`User address ${senderWallet.address} sent all to exchange address in tx ${recipt.transactionHash}`)
+                console.log(`User address ${senderWallet.address} sent all to exchange address in TX hash ${recipt.transactionHash}`)
             } else {
-                console.log(`User address ${senderWallet.address} sent failed`)
+                console.log(`User address ${senderWallet.address} sent failed: ${recipt}`)
             }
+        })
+        .on('error', (e) => {
+            console.log(`Error when ${senderWallet.address} is sending: ${e}`)
         })
 }
 
